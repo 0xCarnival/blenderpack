@@ -1,6 +1,6 @@
 bl_info = {
     "name": "BlenderPack",
-    "author": "Your Name Here",
+    "author": "Boring Always Bored",
     "version": (1, 0),
     "blender": (2, 80, 0),
     "location": "View3D > UI > BlenderPack and Properties > Render",
