@@ -1,1 +1,2 @@
-blender_asset_tracer/
+blenderpack/*
+!blenderpack/__init__.py
