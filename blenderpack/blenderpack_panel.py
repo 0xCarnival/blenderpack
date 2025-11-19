@@ -10,7 +10,20 @@ class VIEW3D_PT_blenderpack(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(context.scene, "blenderpack_zip_path", text="", icon='FILE_FOLDER')
+        scene = context.scene
+        
+        layout.prop(scene, "blenderpack_zip_path", text="", icon='FILE_FOLDER')
         layout.separator()
-        layout.operator("wm.pack_blend", text="Pack this Blend File", icon='PACKAGE')
+        
+        row = layout.row()
+        row.operator("wm.pack_blend", text="Pack this Blend File", icon='PACKAGE')
+        row.enabled = not scene.blenderpack_is_packing
 
+        if scene.blenderpack_is_packing:
+            layout.separator()
+            layout.label(text=scene.blenderpack_status)
+            layout.prop(scene, "blenderpack_progress", text="Progress", slider=True)
+        elif scene.blenderpack_result_msg:
+            layout.separator()
+            icon = 'CHECKMARK' if scene.blenderpack_result_type == 'INFO' else 'ERROR'
+            layout.label(text=scene.blenderpack_result_msg, icon=icon)

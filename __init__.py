@@ -94,11 +94,31 @@ def register():
     bpy.types.Scene.blenderpack_zip_path = bpy.props.StringProperty(
         name="Zip Path", description="Path to save the packed zip file", default="", maxlen=1024, subtype='FILE_PATH'
     )
+    bpy.types.Scene.blenderpack_progress = bpy.props.FloatProperty(
+        name="Progress", default=0.0, min=0.0, max=100.0, subtype='PERCENTAGE'
+    )
+    bpy.types.Scene.blenderpack_status = bpy.props.StringProperty(
+        name="Status", default="Idle"
+    )
+    bpy.types.Scene.blenderpack_is_packing = bpy.props.BoolProperty(
+        name="Is Packing", default=False
+    )
+    bpy.types.Scene.blenderpack_result_msg = bpy.props.StringProperty(
+        name="Result Message", default=""
+    )
+    bpy.types.Scene.blenderpack_result_type = bpy.props.StringProperty(
+        name="Result Type", default="INFO"  # INFO or ERROR
+    )
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.blenderpack_zip_path
+    del bpy.types.Scene.blenderpack_progress
+    del bpy.types.Scene.blenderpack_status
+    del bpy.types.Scene.blenderpack_is_packing
+    del bpy.types.Scene.blenderpack_result_msg
+    del bpy.types.Scene.blenderpack_result_type
 
 if __name__ == "__main__":
     register()
