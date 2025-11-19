@@ -11,6 +11,22 @@ bl_info = {
 }
 
 import bpy
+import sys
+import os
+
+# --- FIX: REGISTER PATHS ---
+# 1. Add the Addon's own directory to sys.path so we can import the local 'blender_asset_tracer'
+addon_dir = os.path.dirname(os.path.abspath(__file__))
+if addon_dir not in sys.path:
+    sys.path.append(addon_dir)
+
+# 2. Add the User Modules directory so we can import pip-installed libs (boto3, etc.)
+modules_path = bpy.utils.user_resource('SCRIPTS', path="modules")
+if not os.path.exists(modules_path):
+    os.makedirs(modules_path)
+if modules_path not in sys.path:
+    sys.path.append(modules_path)
+# ---------------------------
 
 from .blenderpack.blenderpack_panel import VIEW3D_PT_blenderpack
 from .blenderpack.render_panel import PROPERTIES_PT_blenderpack
@@ -23,12 +39,10 @@ class Blenderpack_Preferences(bpy.types.AddonPreferences):
     def draw(self, context):
         layout = self.layout
 
-        # --- Dependency Installer UI ---
         if not InstallDependenciesOperator.get_installed_packages_initialized():
             InstallDependenciesOperator.set_installed_packages()
 
         _, missing_packages = InstallDependenciesOperator.check_dependencies_installed()
-
         is_installing = InstallDependenciesOperator.get_running()
 
         if is_installing:
@@ -42,8 +56,7 @@ class Blenderpack_Preferences(bpy.types.AddonPreferences):
         if len(missing_packages) > 0:
             row = layout.row()
             if not is_installing:
-                row.label(text="Missing dependencies", icon="ERROR")
-
+                row.label(text="Missing dependencies (boto3, requests, etc)", icon="ERROR")
             row = layout.row()
             install_op = row.operator(
                 InstallDependenciesOperator.bl_idname,
@@ -56,8 +69,7 @@ class Blenderpack_Preferences(bpy.types.AddonPreferences):
         else:
             row = layout.row()
             if not is_installing:
-                row.label(text="All dependencies are installed", icon="SOLO_ON")
-
+                row.label(text="External dependencies installed", icon="SOLO_ON")
             row = layout.row()
             uninstall_op = row.operator(
                 InstallDependenciesOperator.bl_idname,
@@ -65,7 +77,6 @@ class Blenderpack_Preferences(bpy.types.AddonPreferences):
                 text="Uninstall Dependencies",
             )
             uninstall_op.uninstall = True
-
             if not is_installing:
                 row.enabled = True
 
@@ -81,11 +92,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.blenderpack_zip_path = bpy.props.StringProperty(
-        name="Zip Path",
-        description="Path to save the packed zip file",
-        default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
+        name="Zip Path", description="Path to save the packed zip file", default="", maxlen=1024, subtype='FILE_PATH'
     )
 
 def unregister():

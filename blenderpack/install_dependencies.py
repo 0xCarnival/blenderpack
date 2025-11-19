@@ -10,26 +10,18 @@ import shutil
 import functools
 import site
 
-
 def redraw_preferences():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == "PREFERENCES":
                 area.tag_redraw()
 
-
 def handle_windows_permission_error(e, operator, description) -> bool:
-    """
-    Detect if the error is a Windows "Access is denied" error ([Error 5]).
-    If so, show a Blender error message instructing the user to run Blender as Administrator,
-    end the operator, and return True. Otherwise, return False.
-    """
     if sys.platform.startswith("win") and (
         "Access is denied" in str(e) or "[Error 5]" in str(e)
     ):
         msg = "Windows Access Denied. Please run Blender as Administrator."
         print(msg)
-        # Report the error to Blender's UI
         operator.report({"ERROR"}, msg)
         operator.set_progress_name(msg)
         operator.finish(bpy.context)
@@ -37,7 +29,6 @@ def handle_windows_permission_error(e, operator, description) -> bool:
         operator._set_running(False)
         return True
     return False
-
 
 class InstallDependenciesOperator(bpy.types.Operator):
     """Install Python dependencies from a requirements.txt file."""
@@ -54,7 +45,7 @@ class InstallDependenciesOperator(bpy.types.Operator):
     _installed_packages = {}
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-
+    # Assuming requirements.txt is one level up
     requirements_path = os.path.join(os.path.dirname(script_dir), "requirements.txt")
     download_directory = os.path.join(script_dir, "wheels")
 
@@ -64,14 +55,26 @@ class InstallDependenciesOperator(bpy.types.Operator):
         super().__init__(*args, **kwargs)
 
     @classmethod
+    def get_user_modules_path(cls):
+        """Helper to get the user modules path consistently."""
+        path = bpy.utils.user_resource('SCRIPTS', path="modules")
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
+
+    @classmethod
     def check_dependencies_installed(cls):
-        """Check which packages from requirements.txt are installed and which are missing."""
+        """Check which packages from requirements.txt are installed."""
+        modules_path = cls.get_user_modules_path()
+        
+        # Ensure sys.path has our target path so importlib can see it
+        if modules_path not in sys.path:
+            sys.path.append(modules_path)
+
         try:
             from importlib.metadata import distributions
         except ImportError:
-            print(
-                "Warning: importlib.metadata not available. Cannot check installed packages."
-            )
+            print("Warning: importlib.metadata not available.")
             return [], []
 
         def normalize_package_name(name):
@@ -83,11 +86,13 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
         requirements = cls.read_requirements(cls.requirements_path)
         if not requirements:
-            print("No requirements found to install.")
             return [], []
 
-        # Get installed packages and versions
         installed_packages = {}
+        # invalidate caches to ensure we see fresh uninstall results
+        import importlib
+        importlib.invalidate_caches()
+        
         for dist in distributions():
             try:
                 dist_name = dist.metadata.get("Name")
@@ -95,7 +100,7 @@ class InstallDependenciesOperator(bpy.types.Operator):
                     package_name = normalize_package_name(dist_name)
                     installed_packages[package_name] = dist.version
             except Exception as e:
-                print(f"Warning: Error reading package metadata: {e}")
+                pass
 
         installed_correctly = []
         missing_or_incorrect = []
@@ -110,13 +115,9 @@ class InstallDependenciesOperator(bpy.types.Operator):
             if installed_version:
                 if required_version:
                     if installed_version == required_version:
-                        installed_correctly.append(
-                            f"{package_name}=={installed_version}"
-                        )
+                        installed_correctly.append(f"{package_name}=={installed_version}")
                     else:
-                        missing_or_incorrect.append(
-                            f"{package_name}=={required_version} (found {installed_version})"
-                        )
+                        missing_or_incorrect.append(f"{package_name}=={required_version} (found {installed_version})")
                 else:
                     installed_correctly.append(package_name)
             else:
@@ -130,14 +131,19 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
     @classmethod
     def set_installed_packages(cls):
-        """Retrieve a dictionary of installed packages and their versions using pip list."""
         python_exe = sys.executable
         try:
+            modules_path = cls.get_user_modules_path()
+            env = os.environ.copy()
+            # Point PYTHONPATH to our custom folder so pip list sees it
+            env["PYTHONPATH"] = modules_path + os.pathsep + env.get("PYTHONPATH", "")
+
             result = subprocess.run(
                 [python_exe, "-m", "pip", "list"],
                 stdout=subprocess.PIPE,
                 text=True,
                 check=True,
+                env=env
             )
             packages = {}
             for line in result.stdout.splitlines():
@@ -148,7 +154,6 @@ class InstallDependenciesOperator(bpy.types.Operator):
                     packages[match.group(1)] = match.group(2)
             cls._installed_packages_initialized = True
             cls._installed_packages = packages
-            print("Installed packages updated:", packages)
         except subprocess.CalledProcessError as e:
             print("Error: Failed to retrieve installed packages:", e)
             cls._installed_packages_initialized = False
@@ -164,7 +169,6 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
     @classmethod
     def _set_running(cls, value: bool):
-        print(f"Setting running state to {value}")
         cls._running = value
 
     @classmethod
@@ -182,7 +186,6 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
     @classmethod
     def set_progress_name(cls, value: str):
-        print(f"Progress name: {value}")
         cls._progress_name = value
 
     @classmethod
@@ -195,22 +198,18 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
     @classmethod
     def set_progress_icon(cls, value: str):
-        print(f"Progress icon: {value}")
         cls._progress_icon = value
 
     @classmethod
     def read_requirements(cls, file_path):
         if not os.path.exists(file_path):
-            print(f"Warning: Requirements file {file_path} does not exist.")
             return []
-
         try:
             with open(file_path, "r") as file:
                 requirements = file.readlines()
             requirements = [req.strip() for req in requirements if req.strip()]
             return requirements
-        except Exception as e:
-            print(f"Error: Unable to read requirements file: {e}")
+        except Exception:
             return []
 
     def modal(self, context, event):
@@ -222,19 +221,15 @@ class InstallDependenciesOperator(bpy.types.Operator):
 
     def cancel(self, context):
         self.report({"INFO"}, "Dependency installation cancelled")
-        print("Operation cancelled by user.")
 
     def invoke(self, context, event):
         if self.get_running():
-            print("Operator already running, invocation canceled.")
             return {"CANCELLED"}
 
         self._set_running(True)
-
         installed_correctly, missing_or_incorrect = self.check_dependencies_installed()
 
         if not self.uninstall and not missing_or_incorrect:
-            print("All packages are already installed correctly. Nothing to do.")
             self._set_running(False)
             return {"CANCELLED"}
 
@@ -256,13 +251,11 @@ class InstallDependenciesOperator(bpy.types.Operator):
         self._timer = None
         self._run_thread = None
         self._set_running(False)
-        msg = (
-            "All packages installed"
-            if not self.uninstall
-            else "All packages uninstalled"
-        )
+        msg = "All packages installed" if not self.uninstall else "All packages uninstalled"
         self.report({"INFO"}, msg)
-        print(msg)
+        
+        # Force check dependencies again to update UI immediately
+        self.check_dependencies_installed()
 
     def async_install(self, requirements, installed_correctly):
         loop = asyncio.new_event_loop()
@@ -273,30 +266,25 @@ class InstallDependenciesOperator(bpy.types.Operator):
         self.set_progress_name(f"Preparing to {action}")
         self.set_progress_icon("SHADERFX" if not self.uninstall else "X")
 
-        # Ensure pip is available
         try:
             ensurepip.bootstrap()
         except Exception as e:
             print("Error: ensurepip bootstrap failed:", e)
 
         python_exe = sys.executable
-        try:
-            site_packages_list = site.getsitepackages()
-            if not site_packages_list:
-                print("Error: No site-packages directory found. Installation may fail.")
-                site_packages = ""
-            else:
-                site_packages = site_packages_list[0]
-        except Exception as e:
-            print("Error: Unable to retrieve site-packages directory:", e)
-            site_packages = ""
+        modules_path = self.get_user_modules_path()
+        
+        # Add user modules path to sys.path if missing
+        if modules_path not in sys.path:
+            sys.path.append(modules_path)
 
         total_requirements = len(requirements)
 
-        async def run_subprocess(cmd, description):
+        # --- FIX: Updated run_subprocess to accept 'env' ---
+        async def run_subprocess(cmd, description, env=None):
             print(f"Running command for {description}: {' '.join(cmd)}")
             try:
-                result = await loop.run_in_executor(
+                await loop.run_in_executor(
                     None,
                     functools.partial(
                         subprocess.run,
@@ -305,75 +293,57 @@ class InstallDependenciesOperator(bpy.types.Operator):
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        env=env # Pass the environment here
                     ),
                 )
-                print(f"Command succeeded for {description}. Output:\n{result.stdout}")
             except subprocess.CalledProcessError as e:
-                # First, see if it's a Windows permission error; handle if yes.
                 if handle_windows_permission_error(e.stderr, self, description):
-                    return  # Stop further processing (we already reported error)
+                    return
                 else:
                     print(f"Command failed ({description}): {e.stderr}")
 
         async def install_async():
             if not os.path.exists(self.download_directory):
-                try:
-                    os.makedirs(self.download_directory)
-                except Exception as e:
-                    print("Error: Unable to create download directory:", e)
+                os.makedirs(self.download_directory)
 
             total_tasks = total_requirements * 2
             downloaded_wheels = []
 
-            # Download phase
             for index, req in enumerate(requirements, start=1):
                 self.set_progress_name(f"Downloading {req}")
                 self.set_progress_icon("IMPORT")
 
                 download_cmd = [
-                    python_exe,
-                    "-m",
-                    "pip",
-                    "download",
+                    python_exe, "-m", "pip", "download",
                     "--only-binary=:all:",
-                    "-d",
-                    self.download_directory,
+                    "-d", self.download_directory,
                     req,
                 ]
                 await run_subprocess(download_cmd, f"downloading {req}")
-                print(f"Downloaded {req} ({index}/{total_requirements})")
 
                 current_percentage = (index - 1) / total_tasks
                 self.set_progress(current_percentage)
 
-                # Attempt to find matching wheels
                 normalized_req_name = req.split("==")[0].lower().replace("-", "_")
                 wheel_files = [
                     os.path.join(self.download_directory, file)
                     for file in os.listdir(self.download_directory)
                     if file.endswith(".whl") and normalized_req_name in file.lower()
                 ]
-                if not wheel_files:
-                    print(f"Warning: No wheels found for {req} after download.")
                 downloaded_wheels.extend(wheel_files)
 
-            # Install phase
             for index, wheel in enumerate(downloaded_wheels, start=1):
                 wheel_name = os.path.basename(wheel)
                 self.set_progress_name(f"Installing {wheel_name}")
                 self.set_progress_icon("DISC")
 
                 install_cmd = [
-                    python_exe,
-                    "-m",
-                    "pip",
-                    "install",
+                    python_exe, "-m", "pip", "install",
                     wheel,
-                    "-t",
-                    site_packages,
+                    "-t", modules_path,
+                    "--no-deps"
                 ]
                 await run_subprocess(install_cmd, f"installing {wheel}")
-                print(f"Installed {wheel} ({index}/{len(downloaded_wheels)})")
 
                 current_percentage = (total_requirements + index - 1) / total_tasks
                 self.set_progress(current_percentage)
@@ -382,7 +352,6 @@ class InstallDependenciesOperator(bpy.types.Operator):
             self.set_progress_name("All packages installed")
             self.set_progress_icon("SOLO_ON")
             self.set_installed_packages()
-            print("All packages installed")
 
         async def uninstall_async():
             self.set_progress(0)
@@ -390,11 +359,13 @@ class InstallDependenciesOperator(bpy.types.Operator):
             self.set_progress_icon("TRASH")
 
             if os.path.exists(self.download_directory):
-                try:
-                    shutil.rmtree(self.download_directory)
-                    print(f"Deleted directory {self.download_directory}")
-                except Exception as e:
-                    print("Error: Unable to delete wheels directory:", e)
+                shutil.rmtree(self.download_directory)
+
+            # --- FIX: Prepare Environment with PYTHONPATH ---
+            # Pip uninstall needs to know where to look to remove the packages
+            env = os.environ.copy()
+            env["PYTHONPATH"] = modules_path + os.pathsep + env.get("PYTHONPATH", "")
+            # ------------------------------------------------
 
             total_tasks = len(installed_correctly)
             for index, req in enumerate(installed_correctly, start=1):
@@ -402,8 +373,9 @@ class InstallDependenciesOperator(bpy.types.Operator):
                 self.set_progress_icon("UNLINKED")
 
                 uninstall_cmd = [python_exe, "-m", "pip", "uninstall", req, "-y"]
-                await run_subprocess(uninstall_cmd, f"uninstalling {req}")
-                print(f"Uninstalled {req} ({index}/{total_tasks})")
+                
+                # Pass the env with PYTHONPATH so pip finds the packages in user modules
+                await run_subprocess(uninstall_cmd, f"uninstalling {req}", env=env)
 
                 current_percentage = index / total_tasks
                 self.set_progress(current_percentage)
@@ -411,8 +383,6 @@ class InstallDependenciesOperator(bpy.types.Operator):
             self.set_progress(1)
             self.set_progress_name("All packages uninstalled")
             self.set_progress_icon("X")
-            print("All packages uninstalled")
-
             self.set_installed_packages()
 
         try:
